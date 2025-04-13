@@ -1,0 +1,56 @@
+install:
+	poetry install
+
+ipython:
+	poetry run ipython
+
+jupyterlab:
+	poetry run jupyter lab
+
+format-yaml:
+	@if command -v prettier > /dev/null; then \
+		echo "Formatting YAML files with prettier..."; \
+		prettier --write "**/*.yml" "**/*.yaml"; \
+	else \
+		echo "prettier not found. Install with: npm install -g prettier"; \
+	fi
+
+format:
+	poetry run autoflake --in-place --remove-unused-variables --remove-all-unused-imports --ignore-init-module-imports -r sincpro_async_worker
+	poetry run autoflake --in-place --remove-unused-variables --remove-all-unused-imports --ignore-init-module-imports -r tests
+	poetry run isort sincpro_async_worker
+	poetry run isort tests
+	poetry run black sincpro_async_worker
+	poetry run black tests
+	make format-yaml
+
+format-all: format format-yaml
+
+clean-pyc:
+	find . -type d -name '__pycache__' -exec rm -rf {} \; || exit 0
+	find . -type f -iname '*.pyc' -delete || exit 0
+
+build:
+	poetry build
+
+publish:
+	poetry publish -u __token__ -p $(POETRY_PYPI_TOKEN) --build
+
+test:
+	poetry run pytest tests
+
+test_debug:
+	poetry run pytest -vvs tests
+
+test_one:
+	poetry run pytest ${t} -vvs
+
+type-check:
+	poetry run pyright sincpro_logger tests
+
+lint:
+	poetry run black --check sincpro_logger tests
+	poetry run isort --check-only sincpro_logger tests
+	make type-check
+
+.PHONY: install start clean test build format format-yaml format-all type-check lint 
