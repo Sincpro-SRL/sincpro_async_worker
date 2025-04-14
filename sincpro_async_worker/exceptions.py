@@ -1,17 +1,7 @@
 """
-Exception module for sincpro_async_worker.
-
-This module defines specific exceptions that may be raised by the component.
+Custom exceptions for the async worker.
 """
 
-
-class AsyncWorkerError(Exception):
-    """Base exception for errors in the AsyncWorker."""
-
-
-class TaskExecutionError(AsyncWorkerError):
-    """Raised when an error occurs during asynchronous task execution."""
-
-
-class WorkerNotRunningError(AsyncWorkerError):
-    """Raised when trying to use the worker when it's not running."""
+class WorkerNotRunningError(RuntimeError):
+    """Raised when trying to use a worker that is not running."""
+    pass

@@ -2,72 +2,40 @@
 Core implementation of the async worker functionality.
 """
 
-from typing import Any, Coroutine, Optional, TypeVar
+import asyncio
+from typing import Any, Awaitable, Optional, TypeVar
 
-from sincpro_async_worker.dispatcher import Dispatcher
-from sincpro_async_worker.domain.worker import ExecutionMode
-from sincpro_async_worker.worker import Worker
+from sincpro_async_worker.infrastructure.dispatcher import Dispatcher
 
 T = TypeVar("T")
 
-# Singleton worker instance
-_worker: Optional[Worker] = None
+# Singleton dispatcher instance
 _dispatcher: Optional[Dispatcher] = None
 
-
-def _ensure_worker_started(mode: ExecutionMode = ExecutionMode.THREAD) -> None:
-    """
-    Ensure the worker is started in the specified mode.
-
-    Args:
-        mode: Execution mode, either THREAD or SUBPROCESS.
-             Defaults to THREAD.
-    """
-    global _worker, _dispatcher
-
-    if _worker is None:
-        _worker = Worker()
-        _worker.start(mode)
-        _dispatcher = Dispatcher(_worker)
-
-
 def run_async_task(
-    coro: Coroutine[Any, Any, T],
-    wait_for_result: bool = False,
+    task: Awaitable[T],
     timeout: Optional[float] = None,
-    mode: ExecutionMode = ExecutionMode.THREAD,
-) -> Optional[T]:
+) -> T:
     """
     Run an async task in the event loop.
 
-    This is the main interface for executing async tasks. If the worker
-    hasn't been started, it will be automatically initialized.
+    This is the main interface for executing async tasks. If the dispatcher
+    hasn't been initialized, it will be automatically created.
 
     Args:
-        coro: Coroutine to execute.
-        wait_for_result: If True, wait for and return the result.
-        timeout: Maximum time to wait for the result in seconds.
-        mode: Execution mode, either THREAD or SUBPROCESS.
-             Defaults to THREAD.
+        task: Async task to execute
+        timeout: Maximum time to wait for the result in seconds
 
     Returns:
-        The result of the coroutine if wait_for_result is True, otherwise None.
+        The result of the task
 
     Raises:
-        TaskExecutionError: If an error occurs during task execution.
-        TimeoutError: If the operation times out.
+        TimeoutError: If the operation times out
+        Exception: Any exception raised by the task
     """
-    _ensure_worker_started(mode)
-    assert _dispatcher is not None  # For type checking
+    global _dispatcher
 
-    return _dispatcher.run(coro, wait_for_result, timeout)
+    if _dispatcher is None:
+        _dispatcher = Dispatcher()
 
-
-def shutdown() -> None:
-    """Shutdown the worker and clean up resources."""
-    global _worker, _dispatcher
-
-    if _worker is not None:
-        _worker.shutdown()
-        _worker = None
-        _dispatcher = None
+    return _dispatcher.execute(task, timeout)
