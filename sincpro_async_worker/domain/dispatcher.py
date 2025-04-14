@@ -2,10 +2,11 @@
 Domain interface for the Dispatcher component.
 """
 
-from typing import Protocol, TypeVar, Awaitable, Optional
+from typing import Protocol, TypeVar, Awaitable, Optional, runtime_checkable
 
 T = TypeVar('T')
 
+@runtime_checkable
 class DispatcherInterface(Protocol):
     """
     Interface for the Dispatcher component.
