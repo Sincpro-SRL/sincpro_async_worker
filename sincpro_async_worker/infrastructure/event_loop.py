@@ -68,16 +68,29 @@ class EventLoop:
         if not self._is_running:
             return
 
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
-            self._loop = None
+        try:
+            if self._loop:
+                # Stop the loop first
+                self._loop.call_soon_threadsafe(self._loop.stop)
+                
+                # Wait for the loop to stop
+                if self._thread and self._thread.is_alive():
+                    self._thread.join(timeout=1.0)
+                
+                # Close the loop
+                self._loop.close()
+                self._loop = None
 
-        if self._thread:
-            self._thread.join()
-            self._thread = None
+            if self._thread:
+                if self._thread.is_alive():
+                    self._thread.join(timeout=1.0)
+                self._thread = None
 
-        self._is_running = False
-        logger.debug("Event loop shutdown completed")
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+        finally:
+            self._is_running = False
+            logger.debug("Event loop shutdown completed")
 
     def is_running(self) -> bool:
         """Check if the event loop is running."""

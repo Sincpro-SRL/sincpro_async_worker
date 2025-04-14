@@ -1,4 +1,4 @@
-# SincPro Async Worker
+# Sincpro Async Worker
 
 Una solución simple para ejecutar tareas asíncronas desde código síncrono.
 
@@ -13,7 +13,7 @@ Esta librería está diseñada para escenarios donde necesitas ejecutar operacio
    - Manejar operaciones de red sin bloquear el hilo principal
 
 2. **Aislamiento de operaciones asíncronas**
-   - Ejecutar tareas asíncronas en un hilo o proceso separado
+   - Ejecutar tareas asíncronas en un hilo separado
    - Mantener el código síncrono limpio y simple
 
 3. **Despacho simple de tareas**
@@ -42,38 +42,25 @@ pip install sincpro-async-worker
 ## Uso Básico
 
 ```python
-from sincpro_async_worker import Worker, ExecutionMode
-
-# Crear worker
-worker = Worker()
-
-# Iniciar en modo thread (por defecto)
-worker.start(mode=ExecutionMode.THREAD)
+from sincpro_async_worker import run_async_task
 
 # Ejecutar tarea asíncrona
 async def mi_tarea():
     await asyncio.sleep(1)
     return "hecho"
 
-resultado = await worker.run(mi_tarea())
+resultado = run_async_task(mi_tarea())
 
-# Apagar cuando termines
-worker.shutdown()
+# Opcionalmente, puedes especificar un timeout
+resultado = run_async_task(mi_tarea(), timeout=5.0)
 ```
 
-## Modos de Ejecución
+## Características
 
-La librería soporta dos modos de ejecución:
-
-1. **Thread (por defecto)**
-   - Más ligero
-   - Comparte memoria con el proceso principal
-   - Ideal para tareas I/O bound
-
-2. **Subproceso**
-   - Aislamiento completo
-   - Mayor overhead
-   - Ideal para tareas CPU bound
+- **Ejecución en hilo separado**: Las tareas se ejecutan en un hilo dedicado
+- **Manejo de timeouts**: Soporte para timeouts en la ejecución de tareas
+- **Propagación de excepciones**: Las excepciones se propagan correctamente al hilo principal
+- **Limpieza automática**: Los recursos se liberan automáticamente
 
 ## Contribuciones
 
