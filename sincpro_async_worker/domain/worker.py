@@ -1,57 +1,43 @@
 """
-Worker domain abstractions and value objects.
+Domain interface for the Worker component.
 """
 
-import asyncio
-from enum import StrEnum
-from typing import NewType, Protocol, runtime_checkable
+from typing import Protocol, TypeVar, Awaitable
 
-from sincpro_async_worker.domain.queue import TaskQueue
+T = TypeVar('T')
 
-# Value Objects
-ProcessId = NewType("ProcessId", int)
-ThreadId = NewType("ThreadId", int)
-
-
-class ExecutionMode(StrEnum):
-    """
-    Execution mode for the worker.
-
-    Attributes:
-        THREAD: Run the worker in a thread (default)
-        SUBPROCESS: Run the worker in a separate process
-    """
-
-    THREAD = "thread"
-    SUBPROCESS = "subprocess"
-
-
-@runtime_checkable
-class WorkerStatus(Protocol):
-    """Protocol defining the status of a worker."""
-
-    is_running: bool
-    mode: ExecutionMode
-    process_id: ProcessId | None
-    thread_id: ThreadId | None
-
-
-@runtime_checkable
 class WorkerInterface(Protocol):
-    """Protocol defining the worker interface."""
+    """
+    Interface for the Worker component.
+    Defines the contract that all Worker implementations must follow.
+    """
 
-    def start(self, mode: ExecutionMode = ExecutionMode.THREAD) -> None:
-        """Start the worker in the specified mode."""
+    def start(self) -> None:
+        """
+        Start the worker.
+        """
+        ...
+
+    def run_coroutine(self, coro: Awaitable[T]) -> Awaitable[T]:
+        """
+        Run a coroutine in the worker's event loop.
+        
+        Args:
+            coro: The coroutine to run
+            
+        Returns:
+            A Future representing the result of the coroutine
+        """
         ...
 
     def shutdown(self) -> None:
-        """Stop the worker and clean up resources."""
+        """
+        Shutdown the worker.
+        """
         ...
 
-    def get_event_loop(self) -> asyncio.AbstractEventLoop:
-        """Get the event loop instance."""
-        ...
-
-    def get_task_queue(self) -> TaskQueue:
-        """Get the task queue instance."""
+    def is_running(self) -> bool:
+        """
+        Check if the worker is running.
+        """
         ...

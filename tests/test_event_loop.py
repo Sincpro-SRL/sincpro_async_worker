@@ -3,10 +3,9 @@ Tests for the EventLoop component.
 """
 
 import asyncio
-
 import pytest
 
-from sincpro_async_worker.event_loop import EventLoop
+from sincpro_async_worker.infrastructure import EventLoop
 
 
 @pytest.fixture

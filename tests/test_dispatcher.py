@@ -8,9 +8,8 @@ from concurrent.futures import TimeoutError
 
 import pytest
 
-from sincpro_async_worker.dispatcher import Dispatcher
 from sincpro_async_worker.exceptions import TaskExecutionError
-from sincpro_async_worker.worker import Worker
+from sincpro_async_worker.infrastructure import Dispatcher, Worker
 
 
 @pytest.fixture
@@ -45,64 +44,94 @@ def test_dispatcher_initialization(dispatcher, worker):
     assert dispatcher._worker is worker
 
 
-def test_dispatcher_fire_and_forget(dispatcher):
-    """Test fire-and-forget task execution."""
-    # This should not raise any exceptions
-    dispatcher.run(successful_task(), wait_for_result=False)
-    time.sleep(0.2)  # Give task time to complete
+def test_dispatcher_fire_and_forget(worker):
+    """Test that dispatcher can execute tasks without waiting for result."""
+    worker.start()
+    dispatcher = Dispatcher(worker)
+    
+    future = dispatcher.run(successful_task())
+    assert future is not None
+    assert not future.done()
+    
+    worker.shutdown()
 
 
-def test_dispatcher_wait_for_result(dispatcher):
-    """Test task execution with result waiting."""
-    result = dispatcher.run(successful_task(), wait_for_result=True)
-    assert result == "Task completed successfully"
+def test_dispatcher_wait_for_result(worker):
+    """Test that dispatcher can wait for task result."""
+    worker.start()
+    dispatcher = Dispatcher(worker)
+    
+    result = dispatcher.run(successful_task())
+    assert result == "success"
+    
+    worker.shutdown()
 
 
-def test_dispatcher_timeout(dispatcher):
-    """Test task execution with timeout."""
-    with pytest.raises(TimeoutError):
-        dispatcher.run(successful_task(0.5), wait_for_result=True, timeout=0.1)
+def test_dispatcher_timeout(worker):
+    """Test that dispatcher respects timeout."""
+    worker.start()
+    dispatcher = Dispatcher(worker)
+    
+    with pytest.raises(asyncio.TimeoutError):
+        dispatcher.run(successful_task(0.5), timeout=0.1)
+    
+    worker.shutdown()
 
 
-def test_dispatcher_error_handling(dispatcher):
-    """Test error handling in task execution."""
-    with pytest.raises(TaskExecutionError) as exc_info:
-        dispatcher.run(failing_task(), wait_for_result=True)
-    assert "Task failed" in str(exc_info.value)
+def test_dispatcher_error_handling(worker):
+    """Test that dispatcher properly handles task errors."""
+    worker.start()
+    dispatcher = Dispatcher(worker)
+    
+    with pytest.raises(ValueError, match="test error"):
+        dispatcher.run(failing_task())
+    
+    worker.shutdown()
 
 
-def test_dispatcher_multiple_tasks(dispatcher):
-    """Test execution of multiple tasks."""
-    # Start multiple tasks
-    results = []
-    for i in range(3):
-        result = dispatcher.run(successful_task(0.1 * (i + 1)), wait_for_result=True)
-        results.append(result)
-
-    assert len(results) == 3
-    assert all(r == "Task completed successfully" for r in results)
-
-
-def test_dispatcher_error_does_not_affect_other_tasks(dispatcher):
-    """Test that one failing task doesn't affect others."""
-    # Start a failing task
-    with pytest.raises(TaskExecutionError):
-        dispatcher.run(failing_task(), wait_for_result=True)
-
-    # Start a successful task
-    result = dispatcher.run(successful_task(), wait_for_result=True)
-    assert result == "Task completed successfully"
+def test_dispatcher_multiple_tasks(worker):
+    """Test that dispatcher can handle multiple tasks."""
+    worker.start()
+    dispatcher = Dispatcher(worker)
+    
+    futures = [dispatcher.run(successful_task()) for _ in range(5)]
+    results = [future.result() for future in futures]
+    
+    assert all(r == "success" for r in results)
+    
+    worker.shutdown()
 
 
-def test_dispatcher_with_sync_function(dispatcher):
-    """Test execution of a synchronous function."""
+def test_dispatcher_error_does_not_affect_other_tasks(worker):
+    """Test that one task's error doesn't affect other tasks."""
+    worker.start()
+    dispatcher = Dispatcher(worker)
+    
+    futures = [
+        dispatcher.run(failing_task()),
+        dispatcher.run(successful_task())
+    ]
+    
+    with pytest.raises(ValueError):
+        futures[0].result()
+    
+    assert futures[1].result() == "success"
+    
+    worker.shutdown()
 
-    def sync_task():
-        time.sleep(0.1)
-        return "Sync task completed"
 
-    result = dispatcher.run(asyncio.to_thread(sync_task), wait_for_result=True)
-    assert result == "Sync task completed"
+def test_dispatcher_with_sync_function(worker):
+    """Test that dispatcher can handle synchronous functions."""
+    worker.start()
+    dispatcher = Dispatcher(worker)
+    
+    def sync_func():
+        return "sync result"
+    
+    result = dispatcher.run(sync_func)
+    assert result == "sync result"
+    
+    worker.shutdown()
 
 
 def test_dispatcher_with_worker_not_running():
@@ -111,4 +140,4 @@ def test_dispatcher_with_worker_not_running():
     dispatcher = Dispatcher(worker)
 
     with pytest.raises(TaskExecutionError):
-        dispatcher.run(successful_task(), wait_for_result=True)
+        dispatcher.run(successful_task())

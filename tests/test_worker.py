@@ -1,105 +1,133 @@
 """
-Tests for the Worker component.
+Tests for the Worker component following TDD approach.
+Focus on core use cases:
+1. Running async tasks from sync code
+2. Task isolation in thread/subprocess
+3. Simple task dispatching
 """
 
+import os
+import threading
+import asyncio
 import time
 
 import pytest
 
-from sincpro_async_worker.exceptions import WorkerNotRunningError
-from sincpro_async_worker.worker import Worker
+from sincpro_async_worker.infrastructure import Worker
 
 
 @pytest.fixture
 def worker():
     """Fixture that provides a clean Worker instance for each test."""
-    return Worker()
+    worker = Worker()
+    yield worker
+    if worker.is_running():
+        worker.stop()
 
 
-def test_worker_initialization(worker):
-    """Test that Worker initializes correctly."""
-    assert not worker._started
-    assert worker._thread is None
-    assert worker._event_loop is not None
+class TestAsyncTaskExecution:
+    """Test suite for async task execution from sync code."""
+    
+    @pytest.mark.asyncio
+    async def test_run_simple_async_task(self, worker):
+        """Test running a simple async task from sync code."""
+        worker.start()
+        
+        async def simple_task():
+            await asyncio.sleep(0.1)
+            return "success"
+        
+        try:
+            future = worker.run(simple_task())
+            result = await future
+            assert result == "success"
+        finally:
+            worker.stop()
+    
+    @pytest.mark.asyncio
+    async def test_run_async_task_with_error(self, worker):
+        """Test error handling in async tasks."""
+        worker.start()
+        
+        async def failing_task():
+            raise ValueError("Task failed")
+        
+        try:
+            future = worker.run(failing_task())
+            with pytest.raises(ValueError, match="Task failed"):
+                await future
+        finally:
+            worker.stop()
 
 
-def test_worker_start(worker):
-    """Test that Worker starts correctly."""
-    worker.start()
-    assert worker._started
-    assert worker._thread is not None
-    assert worker._thread.is_alive()
-    assert worker._event_loop.is_running()
+class TestTaskIsolation:
+    """Test suite for task isolation in different execution modes."""
+    
+    @pytest.mark.asyncio
+    async def test_thread_isolation(self, worker):
+        """Test task isolation in thread mode."""
+        worker.start(mode='thread')
+        
+        try:
+            main_thread_id = threading.get_ident()
+            
+            async def get_thread_id():
+                return threading.get_ident()
+                
+            future = worker.run(get_thread_id())
+            worker_thread_id = await future
+            
+            assert worker_thread_id != main_thread_id
+        finally:
+            worker.stop()
+    
+    @pytest.mark.asyncio
+    async def test_subprocess_isolation(self, worker):
+        """Test task isolation in subprocess mode."""
+        worker.start(mode='subprocess')
+        
+        try:
+            main_process_id = os.getpid()
+            
+            async def get_process_id():
+                return os.getpid()
+                
+            future = worker.run(get_process_id())
+            worker_process_id = await future
+            
+            assert worker_process_id != main_process_id
+        finally:
+            worker.stop()
 
 
-def test_worker_double_start(worker):
-    """Test that calling start twice doesn't create multiple threads."""
-    worker.start()
-    thread_id = worker._thread.ident
-    worker.start()  # Second call should be ignored
-    assert worker._thread.ident == thread_id
-
-
-def test_worker_get_event_loop_before_start(worker):
-    """Test that get_event_loop raises an error if called before start."""
-    with pytest.raises(WorkerNotRunningError, match="Worker has not been started"):
-        worker.get_event_loop()
-
-
-def test_worker_get_event_loop_after_start(worker):
-    """Test that get_event_loop returns the event loop after start."""
-    worker.start()
-    loop = worker.get_event_loop()
-    assert loop is worker._event_loop.get_loop()
-
-
-def test_worker_shutdown(worker):
-    """Test that Worker shutdown works correctly."""
-    worker.start()
-    assert worker._started
-    assert worker._thread.is_alive()
-
-    worker.shutdown()
-    assert not worker._started
-    assert not worker._thread.is_alive()
-
-
-def test_worker_shutdown_before_start(worker):
-    """Test that shutdown works even if start hasn't been called."""
-    worker.shutdown()  # Should not raise any exceptions
-    assert not worker._started
-
-
-def test_worker_thread_cleanup(worker):
-    """Test that the worker thread is properly cleaned up."""
-    worker.start()
-    thread = worker._thread
-
-    worker.shutdown()
-    time.sleep(0.1)  # Give thread time to finish
-    assert not thread.is_alive()
-
-
-def test_worker_event_loop_cleanup(worker):
-    """Test that the event loop is properly cleaned up on shutdown."""
-    worker.start()
-    worker._event_loop.get_loop()
-
-    worker.shutdown()
-    assert not worker._event_loop.is_running()
-    assert worker._event_loop._loop is None
-
-
-def test_worker_keyboard_interrupt_handling(worker):
-    """Test that the worker handles keyboard interrupts gracefully."""
-    worker.start()
-    assert worker._started
-
-    # Simulate keyboard interrupt
-    worker._event_loop.get_loop().call_soon_threadsafe(
-        lambda: worker._event_loop.get_loop().stop()
-    )
-
-    time.sleep(0.1)  # Give thread time to process
-    assert not worker._started
-    assert not worker._thread.is_alive()
+class TestTaskDispatching:
+    """Test suite for simple task dispatching."""
+    
+    @pytest.mark.asyncio
+    async def test_concurrent_task_execution(self, worker):
+        """Test concurrent execution of multiple tasks."""
+        worker.start()
+        
+        try:
+            async def task(i: int, delay: float) -> int:
+                await asyncio.sleep(delay)
+                return i
+            
+            # Create tasks with same delay to test concurrency
+            futures = [
+                worker.run(task(i, 0.1))
+                for i in range(3)
+            ]
+            
+            start_time = time.time()
+            results = await asyncio.gather(*futures)
+            end_time = time.time()
+            
+            # Verify results
+            assert sorted(results) == list(range(3))
+            
+            # Verify concurrent execution
+            total_time = end_time - start_time
+            assert total_time < 0.5  # Should be around 0.1s if truly concurrent
+        finally:
+            worker.stop()
