@@ -1,14 +1,25 @@
 [project]
 name = "sincpro-async-worker"
 version = "0.1.0"
-description = ""
+description = "Componente asíncrono para sincpro_framework que permite ejecutar tareas asíncronas en un entorno mayoritariamente sincrónico"
 authors = [
-    {name = "Gutierrez, Andres",email = "andres.gutierrez@electric.ai"}
+    {name = "Gutierrez, Andres",email = "andru1236@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = [
-]
+license = "SINCPRO S.R.L."
+
+
+[tool.poetry.dependencies]
+python = "^3.12"
+uvloop = "^0.21.0"
+
+
+[tool.poetry.group.dev.dependencies]
+isort = "^6.0.1"
+black = "^25.1.0"
+autoflake = "^2.3.1"
+pyright = "^1.1.399"
+pytest = "^8.3.5"
 
 [tool.poetry]
 packages = [{include = "sincpro_async_worker"}]
@@ -17,3 +28,6 @@ packages = [{include = "sincpro_async_worker"}]
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 94

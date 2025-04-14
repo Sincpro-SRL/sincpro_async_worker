@@ -49,8 +49,8 @@ type-check:
 	poetry run pyright sincpro_logger tests
 
 lint:
-	poetry run black --check sincpro_logger tests
-	poetry run isort --check-only sincpro_logger tests
+	poetry run black --check sincpro_async_worker tests
+	poetry run isort --check-only sincpro_async_worker tests
 	make type-check
 
 .PHONY: install start clean test build format format-yaml format-all type-check lint 
