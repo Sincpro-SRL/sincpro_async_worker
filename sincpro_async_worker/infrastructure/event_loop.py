@@ -5,10 +5,11 @@ EventLoop component that manages the event loop configuration and state.
 import asyncio
 import logging
 import threading
-from typing import Any, Optional, TypeVar, Awaitable
+from typing import Awaitable, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class EventLoop:
     """
@@ -31,11 +32,8 @@ class EventLoop:
 
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        
-        self._thread = threading.Thread(
-            target=self._loop.run_forever,
-            daemon=True
-        )
+
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
         self._is_running = True
         logger.debug("Event loop started in thread mode")
@@ -53,10 +51,10 @@ class EventLoop:
     def run_coroutine(self, coro: Awaitable[T]) -> asyncio.Future[T]:
         """
         Run a coroutine in the event loop.
-        
+
         Args:
             coro: The coroutine to run
-            
+
         Returns:
             A Future representing the result of the coroutine
         """
@@ -72,11 +70,11 @@ class EventLoop:
             if self._loop:
                 # Stop the loop first
                 self._loop.call_soon_threadsafe(self._loop.stop)
-                
+
                 # Wait for the loop to stop
                 if self._thread and self._thread.is_alive():
                     self._thread.join(timeout=1.0)
-                
+
                 # Close the loop
                 self._loop.close()
                 self._loop = None
