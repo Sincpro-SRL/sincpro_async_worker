@@ -2,15 +2,16 @@
 Dispatcher component that executes async tasks.
 """
 
-import logging
 import asyncio
-from typing import Optional, TypeVar, Awaitable
+import logging
+from typing import Awaitable, Optional, TypeVar
 
 from sincpro_async_worker.domain.dispatcher import DispatcherInterface
 from sincpro_async_worker.infrastructure.worker import Worker
 
 logger = logging.getLogger(__name__)
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class Dispatcher(DispatcherInterface):
     """
@@ -26,14 +27,14 @@ class Dispatcher(DispatcherInterface):
     def execute(self, task: Awaitable[T], timeout: Optional[float] = None) -> T:
         """
         Execute an async task.
-        
+
         Args:
             task: The async task to execute
             timeout: Optional timeout in seconds
-            
+
         Returns:
             The result of the task
-            
+
         Raises:
             TimeoutError: If the task takes longer than timeout seconds
             Exception: Any exception raised by the task

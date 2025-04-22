@@ -2,15 +2,14 @@
 Core implementation of the async worker functionality.
 """
 
-import asyncio
-from typing import Any, Awaitable, Optional, TypeVar
+from typing import Awaitable, Optional, TypeVar
 
 from sincpro_async_worker.infrastructure.dispatcher import Dispatcher
 
 T = TypeVar("T")
 
-# Singleton dispatcher instance
 _dispatcher: Optional[Dispatcher] = None
+
 
 def run_async_task(
     task: Awaitable[T],

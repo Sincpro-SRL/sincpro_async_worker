@@ -2,9 +2,10 @@
 Domain interface for the Worker component.
 """
 
-from typing import Protocol, TypeVar, Awaitable
+from typing import Awaitable, Protocol, TypeVar
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class WorkerInterface(Protocol):
     """
@@ -21,10 +22,10 @@ class WorkerInterface(Protocol):
     def run_coroutine(self, coro: Awaitable[T]) -> Awaitable[T]:
         """
         Run a coroutine in the worker's event loop.
-        
+
         Args:
             coro: The coroutine to run
-            
+
         Returns:
             A Future representing the result of the coroutine
         """
