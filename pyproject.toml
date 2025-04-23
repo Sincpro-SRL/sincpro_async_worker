@@ -8,6 +8,10 @@ authors = [
 readme = "README.md"
 license = "SINCPRO S.R.L."
 
+[[tool.poetry.source]]
+name = "fury"
+url = "https://pypi.fury.io/sincpro/"
+priority = "supplemental"
 
 [tool.poetry.dependencies]
 python = "^3.12"
