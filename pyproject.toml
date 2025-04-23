@@ -9,8 +9,9 @@ readme = "README.md"
 license = "SINCPRO S.R.L."
 
 [[tool.poetry.source]]
-url = "https://pypi.fury.io/sincpro/"
 name = "fury"
+url = "https://pypi.fury.io/sincpro/"
+priority = "supplemental"
 
 [tool.poetry.dependencies]
 python = "^3.12"
