@@ -1,6 +1,6 @@
 [project]
 name = "sincpro-async-worker"
-version = "0.1.3"
+version = "0.1.4"
 description = "Componente asíncrono para sincpro_framework que permite ejecutar tareas asíncronas en un entorno mayoritariamente sincrónico"
 authors = [
     {name = "Gutierrez, Andres",email = "andru1236@gmail.com"}
