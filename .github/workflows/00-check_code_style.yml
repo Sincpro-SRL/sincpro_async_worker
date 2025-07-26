@@ -33,7 +33,7 @@ jobs:
         run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
 
       - name: Install Python tools via pipx
-        run: make install
+        run: make init
 
       - name: Verify code format
         run: make verify-format
