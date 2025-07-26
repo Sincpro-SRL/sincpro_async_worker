@@ -10,6 +10,14 @@ configure-gemfury: add-gemfury-repo
 
 
 install: add-gemfury-repo
+	pipx install poetry
+	pipx install black
+	pipx install autoflake
+	pipx install isort
+	pipx install pyright
+	pipx install pre-commit
+	pipx ensurepath
+	pre-commit install
 	poetry install
 
 ipython:
@@ -26,7 +34,7 @@ format-yaml:
 		echo "prettier not found. Install with: npm install -g prettier"; \
 	fi
 
-format:
+format-python:
 	poetry run autoflake --in-place --remove-unused-variables --remove-all-unused-imports --ignore-init-module-imports -r sincpro_async_worker
 	poetry run autoflake --in-place --remove-unused-variables --remove-all-unused-imports --ignore-init-module-imports -r tests
 	poetry run isort sincpro_async_worker
@@ -35,7 +43,14 @@ format:
 	poetry run black tests
 	make format-yaml
 
-format-all: format format-yaml
+format: format-python format-yaml
+
+verify-format: format
+	@if ! git diff --quiet; then \
+	  echo >&2 "✘ El formateo ha modificado archivos. Por favor agrégalos al commit."; \
+	  git --no-pager diff --name-only HEAD -- >&2; \
+	  exit 1; \
+	fi
 
 clean-pyc:
 	find . -type d -name '__pycache__' -exec rm -rf {} \; || exit 0
