@@ -9,6 +9,7 @@ The Dispatcher component should:
 """
 
 import asyncio
+import concurrent.futures
 import time
 
 import pytest
@@ -49,29 +50,127 @@ def test_dispatcher_should_handle_task_with_parameters(dispatcher_fixture):
     async def parameterized_task(x: int, y: str) -> str:
         return f"{y}{x}"
 
-    result = dispatcher_fixture.execute(parameterized_task(42, "value-"))
-    assert result == "value-42"
+    result = dispatcher_fixture.execute(parameterized_task(42, "answer"))
+    assert result == "answer42"
 
 
-def test_dispatcher_should_handle_task_timeout(dispatcher_fixture):
-    """Test that dispatcher properly handles task timeouts."""
+def test_dispatcher_should_handle_timeout(dispatcher_fixture):
+    """Test that dispatcher respects timeout constraints."""
 
     async def slow_task():
         await asyncio.sleep(0.2)
-        return "done"
+        return "completed"
 
     with pytest.raises(TimeoutError):
         dispatcher_fixture.execute(slow_task(), timeout=0.1)
 
 
-def test_dispatcher_should_propagate_task_exceptions(dispatcher_fixture):
-    """Test that dispatcher properly propagates task exceptions."""
+def test_dispatcher_should_propagate_exceptions(dispatcher_fixture):
+    """Test that dispatcher properly propagates exceptions from tasks."""
 
     async def failing_task():
         raise ValueError("Task failed")
 
     with pytest.raises(ValueError, match="Task failed"):
         dispatcher_fixture.execute(failing_task())
+
+
+def test_dispatcher_execute_async_should_return_future(dispatcher_fixture):
+    """Test that execute_async returns a Future immediately."""
+
+    async def async_task():
+        await asyncio.sleep(0.1)
+        return "async_result"
+
+    future = dispatcher_fixture.execute_async(async_task())
+
+    # Should return a concurrent.futures.Future object
+    assert isinstance(future, concurrent.futures.Future)
+
+    # Should not be done immediately
+    assert not future.done()
+
+    # Wait for completion and verify result
+    result = future.result(timeout=1.0)
+    assert result == "async_result"
+
+
+def test_dispatcher_execute_async_multiple_tasks(dispatcher_fixture):
+    """Test that multiple execute_async calls work concurrently."""
+
+    async def numbered_task(number: int):
+        await asyncio.sleep(0.1)
+        return f"task_{number}"
+
+    start_time = time.time()
+
+    # Start multiple async tasks
+    futures = []
+    for i in range(3):
+        future = dispatcher_fixture.execute_async(numbered_task(i))
+        futures.append(future)
+
+    # All futures should be created quickly
+    creation_time = time.time() - start_time
+    assert creation_time < 0.05
+
+    # Wait for all to complete
+    results = []
+    for future in futures:
+        result = future.result(timeout=1.0)
+        results.append(result)
+
+    total_time = time.time() - start_time
+
+    # Should complete concurrently (roughly 0.1 seconds, not 0.3)
+    assert total_time < 0.2
+    assert set(results) == {"task_0", "task_1", "task_2"}
+
+
+def test_dispatcher_execute_async_exception_handling(dispatcher_fixture):
+    """Test that execute_async properly captures exceptions in Future."""
+
+    async def failing_async_task():
+        await asyncio.sleep(0.05)
+        raise RuntimeError("Async task failed")
+
+    future = dispatcher_fixture.execute_async(failing_async_task())
+
+    # Should return a concurrent.futures.Future object
+    assert isinstance(future, concurrent.futures.Future)
+
+    # Exception should be captured in the Future
+    with pytest.raises(RuntimeError, match="Async task failed"):
+        future.result(timeout=1.0)
+
+
+def test_dispatcher_execute_vs_execute_async_behavior(dispatcher_fixture):
+    """Test the behavioral difference between execute and execute_async."""
+
+    async def timed_task():
+        await asyncio.sleep(0.1)
+        return "completed"
+
+    # execute should block and return result
+    start_time = time.time()
+    result = dispatcher_fixture.execute(timed_task())
+    blocking_time = time.time() - start_time
+
+    assert isinstance(result, str)
+    assert result == "completed"
+    assert blocking_time >= 0.1  # Should wait for task completion
+
+    # execute_async should return immediately
+    start_time = time.time()
+    future = dispatcher_fixture.execute_async(timed_task())
+    async_time = time.time() - start_time
+
+    assert isinstance(future, concurrent.futures.Future)
+    assert async_time < 0.05  # Should return almost immediately
+
+    # But the future should eventually contain the result
+    result = future.result(timeout=1.0)
+    assert result == "completed"
 
 
 def test_dispatcher_should_handle_concurrent_tasks(dispatcher_fixture):
