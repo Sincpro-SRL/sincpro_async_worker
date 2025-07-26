@@ -65,6 +65,7 @@ build: configure-gemfury
 
 publish: configure-gemfury
 	poetry publish -r fury --build
+	poetry publish -u __token__ -p $(POETRY_PYPI_TOKEN)
 
 test:
 	poetry run pytest tests
