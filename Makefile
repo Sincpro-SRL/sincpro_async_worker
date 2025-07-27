@@ -9,14 +9,15 @@ configure-gemfury: add-gemfury-repo
 	poetry config http-basic.fury $(GEMFURY_PUSH_TOKEN) NOPASS
 
 prepare-environment:
-	@echo "Using pipx, if not installed, please install it first: https://pypa.github.io/pipx/installation/"
-	@pipx install poetry
-	@pipx install black
-	@pipx install autoflake
-	@pipx install isort
-	@pipx install pyright
-	@pipx install pre-commit
-	@pipx ensurepath
+	echo "Using pipx, if not installed, please install it first: https://pypa.github.io/pipx/installation/"
+	pipx install poetry
+	pipx install black
+	pipx install autoflake
+	pipx install isort
+	pipx install pyright
+	pipx install pre-commit
+	pipx ensurepath
+	pre-commit install
 
 install: add-gemfury-repo
 	poetry install
