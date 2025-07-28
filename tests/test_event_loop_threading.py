@@ -1,11 +1,11 @@
 """
 Tests específicos para la funcionalidad de threading del EventLoop.
 
-Estos tests verifican:
-1. Gestión de threads cuando se crea un loop nuevo
-2. Comportamiento cuando se reutiliza un loop existente
-3. Limpieza correcta de threads propios vs externos
-4. Verificación de ownership del loop
+Estos tests verifican que el EventLoop SIEMPRE use la estrategia "Thread Dedicado":
+1. SIEMPRE crea su propio thread con event loop aislado
+2. NUNCA reutiliza event loops existentes
+3. SIEMPRE es propietario de su loop
+4. NO interfiere con el proceso principal o loops externos
 """
 
 import asyncio
@@ -27,208 +27,210 @@ def fresh_event_loop():
         loop.shutdown()
 
 
-class TestEventLoopThreading:
-    """Tests específicos para la funcionalidad de threading del EventLoop."""
+def test_should_always_create_dedicated_thread():
+    """Test que verifica que SIEMPRE se crea un thread dedicado."""
+    # Given: EventLoop nuevo
+    event_loop = EventLoop()
+    assert not event_loop.is_running()
 
-    def test_should_create_thread_when_no_existing_loop(self, fresh_event_loop):
-        """Test que verifica creación de thread cuando no hay loop existente."""
-        # Given: No hay loop existente
-        assert not fresh_event_loop.is_running()
+    # When: Iniciamos el EventLoop
+    event_loop.start()
 
-        # When: Iniciamos el EventLoop
+    # Then: SIEMPRE debe crear thread dedicado
+    assert event_loop.is_running()
+    assert event_loop._thread is not None
+    assert event_loop._thread.daemon
+    assert event_loop._thread.name == "AsyncWorkerThread"
+
+    # Cleanup
+    event_loop.shutdown()
+
+
+def test_should_create_dedicated_thread_even_inside_asyncio_run():
+    """Test que verifica thread dedicado incluso dentro de asyncio.run()."""
+
+    async def test_inside_existing_loop():
+        # Given: Estamos dentro de asyncio.run() - ya hay un loop corriendo
+        # Verificar que hay un loop externo
+        external_loop = asyncio.get_running_loop()
+        assert external_loop is not None
+
+        # When: Creamos nuestro EventLoop
+        event_loop = EventLoop()
+        event_loop.start()
+
+        # Then: DEBE crear su propio thread dedicado, NO reutilizar el externo
+        assert event_loop.is_running()
+        assert event_loop._thread is not None
+        assert event_loop._loop is not external_loop
+
+        # Cleanup
+        event_loop.shutdown()
+
+        # El loop externo debe seguir funcionando (no se afecta)
+        await asyncio.sleep(0.01)  # Esta línea confirma que el loop externo funciona
+
+    # Ejecutar dentro de asyncio.run() para demostrar aislamiento
+    asyncio.run(test_inside_existing_loop())
+
+
+def test_should_execute_coroutines_in_dedicated_thread(fresh_event_loop):
+    """Test que verifica ejecución en thread dedicado (no en main thread)."""
+    # Given: EventLoop iniciado
+    fresh_event_loop.start()
+
+    async def get_current_thread_info():
+        return {
+            "thread": threading.current_thread(),
+            "thread_name": threading.current_thread().name,
+            "is_main": threading.current_thread() is threading.main_thread(),
+        }
+
+    # When: Ejecutamos una corrutina
+    future = fresh_event_loop.run_coroutine(get_current_thread_info())
+    thread_info = future.result(timeout=1.0)
+
+    # Then: Debe ejecutarse en el thread dedicado, NO en main
+    assert thread_info["thread"] is fresh_event_loop._thread
+    assert thread_info["thread_name"] == "AsyncWorkerThread"
+    assert not thread_info["is_main"]  # NO debe ser el main thread
+
+
+def test_should_cleanup_dedicated_thread_properly(fresh_event_loop):
+    """Test que verifica limpieza correcta del thread dedicado."""
+    # Given: EventLoop iniciado
+    fresh_event_loop.start()
+    thread = fresh_event_loop._thread
+    assert thread is not None
+    assert thread.is_alive()
+
+    # When: Hacemos shutdown
+    fresh_event_loop.shutdown()
+
+    # Then: El thread dedicado debe terminar correctamente
+    assert not fresh_event_loop.is_running()
+    assert fresh_event_loop._thread is None
+    # Dar un momento para que el thread termine
+    time.sleep(0.1)
+    assert not thread.is_alive()
+
+
+def test_should_isolate_from_external_loops():
+    """Test que verifica aislamiento total de loops externos."""
+
+    async def test_isolation():
+        # Given: Loop externo corriendo (asyncio.run)
+        external_loop = asyncio.get_running_loop()
+        external_task_executed = False
+
+        async def external_task():
+            nonlocal external_task_executed
+            await asyncio.sleep(0.05)
+            external_task_executed = True
+            return "external"
+
+        # Iniciar tarea en loop externo
+        external_future = asyncio.create_task(external_task())
+
+        # When: Creamos EventLoop dedicado
+        event_loop = EventLoop()
+        event_loop.start()
+
+        async def dedicated_task():
+            await asyncio.sleep(0.05)
+            return "dedicated"
+
+        # Ejecutar tarea en loop dedicado
+        dedicated_future = event_loop.run_coroutine(dedicated_task())
+        assert dedicated_future is not None  # Verificar que se creó el future
+
+        # Then: Ambas tareas deben ejecutarse sin interferencia
+        external_result = await external_future
+        dedicated_result = dedicated_future.result(timeout=1.0)
+
+        assert external_result == "external"
+        assert dedicated_result == "dedicated"
+        assert external_task_executed == True
+
+        # Los loops deben ser diferentes
+        assert event_loop._loop is not external_loop
+
+        # Cleanup
+        event_loop.shutdown()
+
+    asyncio.run(test_isolation())
+
+
+def test_should_handle_multiple_coroutines_concurrently(fresh_event_loop):
+    """Test que verifica múltiples corrutinas ejecutándose concurrentemente en el thread dedicado."""
+    # Given: EventLoop iniciado
+    fresh_event_loop.start()
+
+    async def get_thread_id():
+        return threading.get_ident()
+
+    # When: Ejecutamos múltiples corrutinas
+    futures = [fresh_event_loop.run_coroutine(get_thread_id()) for _ in range(5)]
+
+    thread_ids = [f.result(timeout=1.0) for f in futures]
+
+    # Then: Todas deben ejecutarse en el mismo thread dedicado
+    assert len(set(thread_ids)) == 1  # Todos los IDs son iguales
+    assert thread_ids[0] == fresh_event_loop._thread.ident
+    # Y no debe ser el main thread
+    assert thread_ids[0] != threading.main_thread().ident
+
+
+def test_should_support_multiple_start_shutdown_cycles(fresh_event_loop):
+    """Test de robustez: múltiples ciclos start/shutdown."""
+    # Multiple start/shutdown cycles
+    for i in range(3):
+        # Start
         fresh_event_loop.start()
-
-        # Then: Debe estar corriendo
         assert fresh_event_loop.is_running()
 
-        # El comportamiento de ownership depende del contexto:
-        # - Si encuentra loop existente: owns_loop = False, thread = None
-        # - Si crea loop nuevo: owns_loop = True, thread != None
-        if fresh_event_loop.owns_loop():
-            # Caso: Creó un loop nuevo
-            assert isinstance(fresh_event_loop._thread, threading.Thread)
-            assert fresh_event_loop._thread.is_alive()
-            assert fresh_event_loop._thread.daemon  # Debe ser daemon thread
-        else:
-            # Caso: Reutilizó un loop existente (común en pytest)
-            assert fresh_event_loop._thread is None
+        # Ejecutar una tarea para verificar que funciona
+        async def simple_task():
+            return f"iteration_{i}"
 
-    def test_should_not_create_thread_when_reusing_existing_loop(self):
-        """Test que verifica NO creación de thread cuando reutiliza loop existente."""
+        future = fresh_event_loop.run_coroutine(simple_task())
+        result = future.result(timeout=1.0)
+        assert result == f"iteration_{i}"
 
-        async def test_inside_asyncio_run():
-            # Given: Estamos dentro de asyncio.run() - ya hay un loop
-            event_loop = EventLoop()
-
-            # When: Iniciamos el EventLoop
-            event_loop.start()
-
-            # Then: NO debe crear thread y NO debe ser propietario
-            assert event_loop.is_running()
-            assert not event_loop.owns_loop()  # No es propietario
-            assert event_loop._thread is None  # No hay thread propio
-
-            # Cleanup
-            event_loop.shutdown()
-
-        # Ejecutar dentro de asyncio.run() para simular loop existente
-        asyncio.run(test_inside_asyncio_run())
-
-    def test_thread_should_execute_coroutines_when_owns_loop(self, fresh_event_loop):
-        """Test que verifica ejecución en thread propio cuando es propietario del loop."""
-        # Given: EventLoop iniciado
-        fresh_event_loop.start()
-
-        # Solo verificar thread execution si somos propietarios del loop
-        if not fresh_event_loop.owns_loop():
-            pytest.skip(
-                "EventLoop reutilizó loop existente - no puede verificar thread propio"
-            )
-
-        async def get_current_thread_info():
-            return {
-                "thread": threading.current_thread(),
-                "is_main": threading.current_thread() is threading.main_thread(),
-            }
-
-        # When: Ejecutamos una corrutina
-        future = fresh_event_loop.run_coroutine(get_current_thread_info())
-        thread_info = future.result(timeout=1.0)
-
-        # Then: Debe ejecutarse en el thread del EventLoop, no en main
-        assert thread_info["thread"] is fresh_event_loop._thread
-        assert not thread_info["is_main"]  # No debe ser el main thread
-
-    def test_thread_cleanup_when_owns_loop(self, fresh_event_loop):
-        """Test que verifica limpieza correcta del thread cuando es propietario."""
-        # Given: EventLoop iniciado
-        fresh_event_loop.start()
-
-        # Solo verificar cleanup si somos propietarios del loop
-        if not fresh_event_loop.owns_loop():
-            pytest.skip(
-                "EventLoop reutilizó loop existente - no hay thread propio para limpiar"
-            )
-
-        thread = fresh_event_loop._thread
-        assert thread is not None
-        assert thread.is_alive()
-
-        # When: Hacemos shutdown
+        # Shutdown
         fresh_event_loop.shutdown()
-
-        # Then: El thread debe terminar
         assert not fresh_event_loop.is_running()
-        assert fresh_event_loop._thread is None
-        assert not thread.is_alive()
 
-    def test_no_thread_cleanup_when_not_owns_loop(self):
-        """Test que verifica NO limpieza cuando no es propietario del loop."""
+        # Brief pause between cycles
+        time.sleep(0.01)
 
-        async def test_external_loop_cleanup():
-            # Given: EventLoop usando loop externo
-            event_loop = EventLoop()
-            event_loop.start()
 
-            # Verificar que no es propietario
-            assert not event_loop.owns_loop()
-            assert event_loop._thread is None
+def test_dedicated_thread_strategy_consistency():
+    """Test que verifica que la estrategia es consistente en diferentes contextos."""
 
-            # When: Hacemos shutdown
-            event_loop.shutdown()
+    def test_in_sync_context():
+        """Test en contexto síncrono (normal)."""
+        loop = EventLoop()
+        loop.start()
+        result = {"has_thread": loop._thread is not None, "is_running": loop.is_running()}
+        loop.shutdown()
+        return result
 
-            # Then: No debe afectar el loop externo (asyncio.run sigue funcionando)
-            assert not event_loop.is_running()  # EventLoop se marca como no running
+    async def test_in_async_context():
+        """Test en contexto asíncrono (dentro de asyncio.run)."""
+        loop = EventLoop()
+        loop.start()
+        result = {"has_thread": loop._thread is not None, "is_running": loop.is_running()}
+        loop.shutdown()
+        return result
 
-            # El loop de asyncio.run() sigue funcionando
-            await asyncio.sleep(0.01)  # Esta línea no debería fallar
+    # Test en contexto sync
+    sync_result = test_in_sync_context()
 
-        # Si esto se ejecuta sin errores, significa que no afectamos el loop externo
-        asyncio.run(test_external_loop_cleanup())
+    # Test en contexto async
+    async_result = asyncio.run(test_in_async_context())
 
-    def test_multiple_coroutines_in_same_thread_when_owns_loop(self, fresh_event_loop):
-        """Test que verifica múltiples corrutinas ejecutándose en el mismo thread."""
-        # Given: EventLoop iniciado
-        fresh_event_loop.start()
-
-        # Solo verificar si somos propietarios del loop
-        if not fresh_event_loop.owns_loop():
-            pytest.skip(
-                "EventLoop reutilizó loop existente - no puede verificar thread específico"
-            )
-
-        async def get_thread_id():
-            return threading.get_ident()
-
-        # When: Ejecutamos múltiples corrutinas
-        futures = [fresh_event_loop.run_coroutine(get_thread_id()) for _ in range(5)]
-
-        thread_ids = [f.result(timeout=1.0) for f in futures]
-
-        # Then: Todas deben ejecutarse en el mismo thread
-        assert len(set(thread_ids)) == 1  # Todos los IDs son iguales
-        assert thread_ids[0] == fresh_event_loop._thread.ident
-
-    def test_thread_should_be_daemon(self, fresh_event_loop):
-        """Test que verifica que el thread creado sea daemon."""
-        # When: Iniciamos EventLoop
-        fresh_event_loop.start()
-
-        # Solo verificar si somos propietarios del loop
-        if not fresh_event_loop.owns_loop():
-            pytest.skip("EventLoop reutilizó loop existente - no hay thread propio")
-
-        # Then: El thread debe ser daemon
-        assert fresh_event_loop._thread.daemon
-
-    def test_thread_lifecycle_robustness(self, fresh_event_loop):
-        """Test de robustez del ciclo de vida del thread."""
-        # Solo ejecutar si podemos crear nuestro propio loop
-        fresh_event_loop.start()
-        if not fresh_event_loop.owns_loop():
-            pytest.skip(
-                "EventLoop reutilizó loop existente - no puede verificar lifecycle de thread propio"
-            )
-        fresh_event_loop.shutdown()
-
-        # Multiple start/shutdown cycles
-        for i in range(3):
-            # Start
-            fresh_event_loop.start()
-            assert fresh_event_loop.is_running()
-            assert fresh_event_loop.owns_loop()
-
-            # Ejecutar una tarea para verificar que funciona
-            async def simple_task():
-                return f"iteration_{i}"
-
-            future = fresh_event_loop.run_coroutine(simple_task())
-            result = future.result(timeout=1.0)
-            assert result == f"iteration_{i}"
-
-            # Shutdown
-            fresh_event_loop.shutdown()
-            assert not fresh_event_loop.is_running()
-
-            # Brief pause between cycles
-            time.sleep(0.01)
-
-    def test_thread_ownership_detection_accuracy(self):
-        """Test que verifica detección precisa de ownership en diferentes contextos."""
-        # Context 1: Primer EventLoop - puede crear o reutilizar
-        loop1 = EventLoop()
-        loop1.start()
-        ownership1 = loop1.owns_loop()  # Puede ser True o False
-        loop1.shutdown()
-
-        # Context 2: Con loop existente garantizado
-        async def test_with_existing():
-            loop2 = EventLoop()
-            loop2.start()
-            assert not loop2.owns_loop()  # Debe reutilizar el de asyncio.run()
-            loop2.shutdown()
-
-        asyncio.run(test_with_existing())
-
-        # Verificar que al menos uno de los contextos funciona
-        assert isinstance(ownership1, bool)  # Al menos verificamos que devuelve boolean
+    # Then: Ambos contextos deben tener el mismo comportamiento
+    assert sync_result == async_result
+    assert sync_result["has_thread"] == True
+    assert sync_result["is_running"] == True

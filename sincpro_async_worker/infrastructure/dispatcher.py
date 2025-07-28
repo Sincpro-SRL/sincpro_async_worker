@@ -9,9 +9,9 @@ dedicated event loops for parallel subtask execution.
 import asyncio
 import concurrent.futures
 import logging
-from typing import Optional, TypeVar
+from typing import Awaitable, Optional, TypeVar
 
-from sincpro_async_worker.domain.dispatcher import AsyncCoroutine, DispatcherInterface
+from sincpro_async_worker.domain.dispatcher import DispatcherInterface
 from sincpro_async_worker.infrastructure.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class Dispatcher(DispatcherInterface):
         self._worker.start()
         logger.debug("Dispatcher initialized and worker started")
 
-    def execute(self, task: AsyncCoroutine[T], timeout: Optional[float] = None) -> T:
+    def execute(self, task: Awaitable[T], timeout: Optional[float] = None) -> T:
         """
         Execute an async coroutine and wait for its completion.
 
@@ -64,7 +64,7 @@ class Dispatcher(DispatcherInterface):
                 future.cancel()
             raise e
 
-    def execute_async(self, task: AsyncCoroutine[T]) -> concurrent.futures.Future[T]:
+    def execute_async(self, task: Awaitable[T]) -> concurrent.futures.Future[T]:
         """
         Execute an async coroutine in fire-and-forget mode (non-blocking).
 

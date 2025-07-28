@@ -8,9 +8,8 @@ enabling parallel execution of async subtasks.
 
 import concurrent.futures
 import logging
-from typing import Optional, TypeVar
+from typing import Awaitable, Optional, TypeVar
 
-from sincpro_async_worker.domain.worker import AsyncCoroutine
 from sincpro_async_worker.infrastructure.event_loop import EventLoop
 
 logger = logging.getLogger(__name__)
@@ -35,9 +34,7 @@ class Worker:
         self._event_loop.start()
         logger.debug("Worker started with event loop running")
 
-    def run_coroutine(
-        self, coro: AsyncCoroutine[T]
-    ) -> Optional[concurrent.futures.Future[T]]:
+    def run_coroutine(self, coro: Awaitable[T]) -> Optional[concurrent.futures.Future[T]]:
         """
         Execute an async coroutine in the worker's dedicated event loop.
 

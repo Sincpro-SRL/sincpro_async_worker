@@ -10,16 +10,11 @@ from sincpro_async_worker.infrastructure.dispatcher import Dispatcher
 # Generic type for async task results
 T = TypeVar("T")
 
-# Type aliases for better clarity
-AsyncTask = Awaitable[T]
-TaskResult = T
-TaskFuture = concurrent.futures.Future[T]
-
 _dispatcher: Optional[Dispatcher] = None
 
 
 def run_async_task(
-    task: AsyncTask[T],
+    task: Awaitable[T],
     timeout: Optional[float] = None,
     fire_and_forget: bool = False,
 ) -> Union[T, concurrent.futures.Future[T]]:

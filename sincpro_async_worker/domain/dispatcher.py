@@ -12,9 +12,6 @@ from typing import Awaitable, Optional, Protocol, TypeVar, runtime_checkable
 # Generic type for async task results
 T = TypeVar("T")
 
-# Type alias for better semantic clarity
-AsyncCoroutine = Awaitable[T]
-
 
 @runtime_checkable
 class DispatcherInterface(Protocol):
@@ -26,7 +23,7 @@ class DispatcherInterface(Protocol):
     within the coroutine, similar to Promise.all() behavior in JavaScript.
     """
 
-    def execute(self, task: AsyncCoroutine[T], timeout: Optional[float] = None) -> T:
+    def execute(self, task: Awaitable[T], timeout: Optional[float] = None) -> T:
         """
         Execute an async coroutine and wait for its completion (blocking mode).
 
@@ -59,7 +56,7 @@ class DispatcherInterface(Protocol):
         """
         ...
 
-    def execute_async(self, task: AsyncCoroutine[T]) -> concurrent.futures.Future[T]:
+    def execute_async(self, task: Awaitable[T]) -> concurrent.futures.Future[T]:
         """
         Execute an async coroutine in fire-and-forget mode (non-blocking).
 

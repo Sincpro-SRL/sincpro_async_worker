@@ -11,16 +11,13 @@ from typing import Awaitable, Optional, Protocol, TypeVar
 # Generic type for async task results
 T = TypeVar("T")
 
-# Type alias for better semantic clarity
-AsyncCoroutine = Awaitable[T]
-
 
 class WorkerInterface(Protocol):
     """
     Interface for the Worker component.
 
     Defines the contract for worker components that manage the execution
-    of async corrutinas in separate threads, enabling parallel execution
+    of async coroutines in separate threads, enabling parallel execution
     of async subtasks within each coroutine.
     """
 
@@ -33,9 +30,7 @@ class WorkerInterface(Protocol):
         """
         ...
 
-    def run_coroutine(
-        self, coro: AsyncCoroutine[T]
-    ) -> Optional[concurrent.futures.Future[T]]:
+    def run_coroutine(self, coro: Awaitable[T]) -> Optional[concurrent.futures.Future[T]]:
         """
         Execute an async coroutine in the worker's event loop.
 
