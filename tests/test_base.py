@@ -48,6 +48,7 @@ def test_concurrent_task_execution() -> None:
 
     # All tasks should complete in roughly the same time
     assert total_time < 0.2  # Should be close to 0.1 seconds
+    assert results is not None  # Ensure we got a result
     assert len(results) == 3
     assert all(r == "Task completed after 0.1 seconds" for r in results)
 

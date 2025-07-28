@@ -79,7 +79,7 @@ test_one:
 	poetry run pytest ${t} -vvs
 
 type-check:
-	poetry run pyright sincpro_logger tests
+	poetry run pyright sincpro_async_worker tests
 
 lint:
 	poetry run black --check sincpro_async_worker tests
