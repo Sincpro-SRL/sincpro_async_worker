@@ -225,14 +225,49 @@ tests/
 
 ---
 
-## 8. Conclusiones
+## 8. Documentación Técnica Avanzada
+
+### 8.1 Estrategia de Event Loop
+
+**Documento**: [`architecture/event_loop_strategy.md`](architecture/event_loop_strategy.md)
+
+**Thread Dedicado Siempre** - La ÚNICA estrategia técnicamente viable:
+
+- **Restricción de Python**: Un thread = un event loop máximo
+- **Aislamiento total**: Zero interferencias con contextos externos  
+- **Type consistency**: Siempre retorna `concurrent.futures.Future`
+- **Universal**: Funciona en scripts, Jupyter, FastAPI
+
+```python
+# Implementación simplificada
+class EventLoop:
+    def run_coroutine(self, coro):
+        # SIEMPRE cross-thread execution
+        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+```
+
+### 8.2 Evaluación de Return Types
+
+**Documento**: [`architecture/return_type_analysis.md`](architecture/return_type_analysis.md)
+
+**Análisis matriz cuantitativa** de opciones de retorno:
+
+| Estrategia | Score | Veredicto |
+|------------|-------|-----------|
+| `concurrent.futures.Future` | **61/70 (87%)** | ✅ **GANADOR** |
+| `asyncio.Task` | 40/70 (57%) | ❌ Incompatible sync |
+| Direct Result `T` | 45/70 (64%) | ❌ Bloquea async |
+
+**Justificación**: `Future` es thread-safe, universal, y consistente en todos los contextos.
+
+## 9. Conclusiones
 
 **Sincpro Async Worker** resuelve el problema común de ejecutar código async desde contextos síncronos mediante:
 
-1. **EventLoop Intelligence** - Reutiliza loops existentes automáticamente
-2. **Graceful Degradation** - Falla elegantemente, no fatalmente  
+1. **Thread Dedicado Strategy** - ÚNICA solución técnicamente viable en Python
+2. **Future-Based Returns** - Type consistency y thread safety garantizada
 3. **API Simple** - Una función, dos modos de uso
-4. **Thread-Safe** - Funciona desde cualquier hilo
-5. **Sin Configuración** - Funciona out-of-the-box
+4. **Zero Configuration** - Funciona out-of-the-box en cualquier contexto
+5. **Graceful Degradation** - Falla elegantemente, no fatalmente
 
-La implementación sigue principios de arquitectura hexagonal y DDD, garantizando mantenibilidad y extensibilidad.
+La implementación sigue principios de arquitectura hexagonal y DDD, con decisiones técnicas respaldadas por análisis cuantitativo y limitaciones del lenguaje Python.
