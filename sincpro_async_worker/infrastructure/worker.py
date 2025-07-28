@@ -2,9 +2,8 @@
 Worker component that manages the execution of async tasks in a separate thread.
 """
 
-import asyncio
 import logging
-from typing import Awaitable, TypeVar
+from typing import Awaitable, Optional, TypeVar
 
 from sincpro_async_worker.infrastructure.event_loop import EventLoop
 
@@ -27,7 +26,7 @@ class Worker:
         self._event_loop.start()
         logger.debug("Worker started")
 
-    def run_coroutine(self, coro: Awaitable[T]) -> asyncio.Future[T]:
+    def run_coroutine(self, coro: Awaitable[T]) -> Optional[Awaitable[T]]:
         """
         Run a coroutine in the worker's event loop.
 
@@ -35,7 +34,7 @@ class Worker:
             coro: The coroutine to run
 
         Returns:
-            A Future representing the result of the coroutine
+            An awaitable representing the result of the coroutine, or None if failed
         """
         return self._event_loop.run_coroutine(coro)
 

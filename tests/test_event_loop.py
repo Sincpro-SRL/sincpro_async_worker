@@ -1,14 +1,14 @@
 """
-Tests for the EventLoop component following TDD principles.
+Tests para las abstracciones fundamentales del EventLoop.
 
-The EventLoop component should:
-1. Manage an asyncio event loop in a separate thread
-2. Allow running coroutines safely from any thread
-3. Handle the event loop lifecycle correctly
+Estos tests verifican:
+1. Ciclo de vida básico (start, running, shutdown)
+2. Ejecución de corrutinas (funcionalidad core)
+3. Manejo de errores y edge cases
+4. Comportamiento de la abstracción, NO detalles de implementación
 """
 
 import asyncio
-import threading
 
 import pytest
 
@@ -18,7 +18,7 @@ from sincpro_async_worker.infrastructure import EventLoop
 @pytest.fixture
 def event_loop_fixture():
     """
-    Fixture that provides a clean EventLoop instance and ensures proper cleanup.
+    Fixture que proporciona una instancia limpia de EventLoop.
     """
     loop = EventLoop()
     yield loop
@@ -27,106 +27,142 @@ def event_loop_fixture():
         loop.shutdown()
 
 
-def test_event_loop_should_start_in_not_running_state(event_loop_fixture):
-    """Test that EventLoop initializes in a clean state."""
-    assert not event_loop_fixture.is_running()
-    assert event_loop_fixture._loop is None
-    assert event_loop_fixture._thread is None
+class TestEventLoopAbstractions:
+    """Tests para las abstracciones fundamentales del EventLoop."""
 
+    def test_should_start_in_clean_state(self, event_loop_fixture):
+        """Test que verifica estado inicial limpio."""
+        assert not event_loop_fixture.is_running()
 
-def test_event_loop_should_create_new_loop_on_start(event_loop_fixture):
-    """Test that start() creates a new event loop in a separate thread."""
-    event_loop_fixture.start()
+    def test_should_become_running_after_start(self, event_loop_fixture):
+        """Test que verifica transición a estado 'running'."""
+        # When: Iniciamos el EventLoop
+        event_loop_fixture.start()
 
-    assert event_loop_fixture.is_running()
-    assert isinstance(event_loop_fixture._loop, asyncio.AbstractEventLoop)
-    assert isinstance(event_loop_fixture._thread, threading.Thread)
-    assert event_loop_fixture._thread.is_alive()
+        # Then: Debe estar corriendo
+        assert event_loop_fixture.is_running()
 
+    def test_start_should_be_idempotent(self, event_loop_fixture):
+        """Test que verifica que start() es idempotente."""
+        # Given: EventLoop ya iniciado
+        event_loop_fixture.start()
+        original_loop = event_loop_fixture._loop
 
-def test_event_loop_should_not_start_if_already_running(event_loop_fixture):
-    """Test that start() is idempotent."""
-    event_loop_fixture.start()
-    original_loop = event_loop_fixture._loop
-    original_thread = event_loop_fixture._thread
+        # When: Llamamos start() nuevamente
+        event_loop_fixture.start()
 
-    # Try to start again
-    event_loop_fixture.start()
+        # Then: No debe cambiar el estado
+        assert event_loop_fixture.is_running()
+        assert event_loop_fixture._loop is original_loop
 
-    # Should maintain the same loop and thread
-    assert event_loop_fixture._loop is original_loop
-    assert event_loop_fixture._thread is original_thread
+    def test_get_loop_should_auto_start(self, event_loop_fixture):
+        """Test que verifica que get_loop() inicia automáticamente."""
+        # Given: EventLoop no iniciado
+        assert not event_loop_fixture.is_running()
 
+        # When: Obtenemos el loop
+        loop = event_loop_fixture.get_loop()
 
-def test_get_loop_should_start_if_not_running(event_loop_fixture):
-    """Test that get_loop() automatically starts the loop if needed."""
-    assert not event_loop_fixture.is_running()
+        # Then: Debe auto-iniciar y devolver un loop válido
+        assert event_loop_fixture.is_running()
+        assert isinstance(loop, asyncio.AbstractEventLoop)
 
-    loop = event_loop_fixture.get_loop()
+    def test_should_execute_coroutines_successfully(self, event_loop_fixture):
+        """Test que verifica ejecución exitosa de corrutinas."""
 
-    assert event_loop_fixture.is_running()
-    assert isinstance(loop, asyncio.AbstractEventLoop)
-    assert loop.is_running()
+        async def simple_coroutine():
+            await asyncio.sleep(0.01)
+            return "success"
 
+        # When: Ejecutamos una corrutina
+        future = event_loop_fixture.run_coroutine(simple_coroutine())
+        result = future.result(timeout=1.0)
 
-def test_run_coroutine_should_execute_in_loop_thread(event_loop_fixture):
-    """Test that coroutines are executed in the event loop thread."""
+        # Then: Debe ejecutarse correctamente
+        assert result == "success"
 
-    async def get_current_thread():
-        return threading.current_thread()
+    def test_should_handle_coroutine_exceptions(self, event_loop_fixture):
+        """Test que verifica manejo de excepciones en corrutinas."""
 
-    future = event_loop_fixture.run_coroutine(get_current_thread())
-    thread = future.result(timeout=1)
+        async def failing_coroutine():
+            raise ValueError("Test error")
 
-    assert thread is event_loop_fixture._thread
+        # When: Ejecutamos una corrutina que falla
+        future = event_loop_fixture.run_coroutine(failing_coroutine())
 
+        # Then: La excepción debe propagarse
+        with pytest.raises(ValueError, match="Test error"):
+            future.result(timeout=1.0)
 
-def test_run_coroutine_should_handle_exceptions(event_loop_fixture):
-    """Test that exceptions in coroutines are propagated correctly."""
+    def test_should_execute_multiple_coroutines_concurrently(self, event_loop_fixture):
+        """Test que verifica ejecución concurrente de múltiples corrutinas."""
 
-    async def raise_error():
-        raise ValueError("Test error")
+        async def delayed_result(delay: float, value: str) -> str:
+            await asyncio.sleep(delay)
+            return value
 
-    future = event_loop_fixture.run_coroutine(raise_error())
+        # When: Iniciamos múltiples corrutinas con diferentes delays
+        future1 = event_loop_fixture.run_coroutine(delayed_result(0.1, "first"))
+        future2 = event_loop_fixture.run_coroutine(delayed_result(0.05, "second"))
 
-    with pytest.raises(ValueError, match="Test error"):
-        future.result(timeout=1)
+        # Then: La segunda debe completarse antes que la primera
+        assert future2.result(timeout=1.0) == "second"
+        assert future1.result(timeout=1.0) == "first"
 
+    def test_should_transition_to_stopped_after_shutdown(self, event_loop_fixture):
+        """Test que verifica transición a estado 'stopped' después de shutdown."""
+        # Given: EventLoop corriendo
+        event_loop_fixture.start()
+        assert event_loop_fixture.is_running()
 
-def test_shutdown_should_cleanup_resources(event_loop_fixture):
-    """Test that shutdown() properly cleans up all resources."""
-    event_loop_fixture.start()
-    thread = event_loop_fixture._thread
+        # When: Hacemos shutdown
+        event_loop_fixture.shutdown()
 
-    event_loop_fixture.shutdown()
+        # Then: No debe estar corriendo
+        assert not event_loop_fixture.is_running()
 
-    assert not event_loop_fixture.is_running()
-    assert event_loop_fixture._loop is None
-    assert event_loop_fixture._thread is None
-    assert not thread.is_alive()
+    def test_shutdown_should_be_safe_to_call_multiple_times(self, event_loop_fixture):
+        """Test que verifica que shutdown() es seguro de llamar múltiples veces."""
+        # Given: EventLoop iniciado y luego cerrado
+        event_loop_fixture.start()
+        event_loop_fixture.shutdown()
 
+        # When/Then: Múltiples llamadas a shutdown no deben fallar
+        event_loop_fixture.shutdown()
+        event_loop_fixture.shutdown()
 
-def test_shutdown_should_be_safe_to_call_multiple_times(event_loop_fixture):
-    """Test that shutdown() is idempotent."""
-    event_loop_fixture.start()
-    event_loop_fixture.shutdown()
-    # Should not raise any exceptions
-    event_loop_fixture.shutdown()
+        assert not event_loop_fixture.is_running()
 
-    assert not event_loop_fixture.is_running()
+    def test_should_handle_shutdown_when_not_running(self, event_loop_fixture):
+        """Test que verifica manejo seguro de shutdown cuando no está corriendo."""
+        # Given: EventLoop no iniciado
+        assert not event_loop_fixture.is_running()
 
+        # When/Then: Shutdown no debe fallar
+        event_loop_fixture.shutdown()
+        assert not event_loop_fixture.is_running()
 
-def test_run_multiple_coroutines_concurrently(event_loop_fixture):
-    """Test that multiple coroutines can run concurrently."""
+    def test_run_coroutine_should_auto_start_if_not_running(self, event_loop_fixture):
+        """Test que verifica auto-inicio cuando se ejecuta corrutina."""
+        # Given: EventLoop no iniciado
+        assert not event_loop_fixture.is_running()
 
-    async def delayed_result(delay: float, value: str) -> str:
-        await asyncio.sleep(delay)
-        return value
+        async def test_coroutine():
+            return "auto_started"
 
-    # Start multiple coroutines with different delays
-    future1 = event_loop_fixture.run_coroutine(delayed_result(0.1, "first"))
-    future2 = event_loop_fixture.run_coroutine(delayed_result(0.05, "second"))
+        # When: Ejecutamos corrutina sin haber llamado start()
+        future = event_loop_fixture.run_coroutine(test_coroutine())
+        result = future.result(timeout=1.0)
 
-    # Second should complete before first
-    assert future2.result(timeout=1) == "second"
-    assert future1.result(timeout=1) == "first"
+        # Then: Debe auto-iniciar y ejecutar correctamente
+        assert event_loop_fixture.is_running()
+        assert result == "auto_started"
+
+    def test_should_provide_ownership_information(self, event_loop_fixture):
+        """Test que verifica que el EventLoop puede reportar si es propietario del loop."""
+        # When: Iniciamos EventLoop
+        event_loop_fixture.start()
+
+        # Then: Debe poder reportar su estado de ownership
+        owns_loop = event_loop_fixture.owns_loop()
+        assert isinstance(owns_loop, bool)  # Solo verificamos que devuelve un boolean

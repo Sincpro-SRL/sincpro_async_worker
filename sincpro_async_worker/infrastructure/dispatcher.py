@@ -38,9 +38,13 @@ class Dispatcher(DispatcherInterface):
 
         Raises:
             TimeoutError: If the task takes longer than timeout seconds
+            RuntimeError: If the worker is not available
             Exception: Any exception raised by the task
         """
         future = self._worker.run_coroutine(task)
+        if future is None:
+            raise RuntimeError("Worker is not available to execute task")
+
         try:
             if timeout is not None:
                 return future.result(timeout=timeout)
@@ -62,9 +66,15 @@ class Dispatcher(DispatcherInterface):
 
         Returns:
             A concurrent.futures.Future representing the eventual result of the task
+
+        Raises:
+            RuntimeError: If the worker is not available
         """
         logger.debug("Executing task in fire-and-forget mode")
-        return self._worker.run_coroutine(task)
+        future = self._worker.run_coroutine(task)
+        if future is None:
+            raise RuntimeError("Worker is not available to execute task")
+        return future
 
     def __del__(self) -> None:
         """Cleanup when the dispatcher is destroyed."""
