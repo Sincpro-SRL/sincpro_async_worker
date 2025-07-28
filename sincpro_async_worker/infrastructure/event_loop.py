@@ -1,16 +1,20 @@
 """
 EventLoop component that manages async execution without conflicts.
-Simple and direct approach.
+Simple and direct approach that returns proper Future types.
 """
 
 import asyncio
+import concurrent.futures
 import logging
 import threading
 import warnings
-from typing import Awaitable, Optional, TypeVar
+from typing import Awaitable, Optional, TypeVar, Union
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
+
+# Type alias for the Future types that can be returned
+AsyncFuture = Union[asyncio.Future[T], concurrent.futures.Future[T]]
 
 
 def get_or_create_event_loop() -> asyncio.AbstractEventLoop:
@@ -79,8 +83,16 @@ class EventLoop:
             warnings.warn(error_msg, RuntimeWarning)
             self._is_running = False
 
-    def run_coroutine(self, coro: Awaitable[T]) -> Optional[asyncio.Future[T]]:
-        """Run a coroutine in the event loop."""
+    def run_coroutine(self, coro: Awaitable[T]) -> Optional[concurrent.futures.Future[T]]:
+        """
+        Run a coroutine in the event loop.
+
+        Args:
+            coro: The coroutine to execute
+
+        Returns:
+            A concurrent.futures.Future representing the result, or None if failed
+        """
         if not self._is_running:
             self.start()
 
@@ -93,13 +105,16 @@ class EventLoop:
             try:
                 current_loop = asyncio.get_running_loop()
                 if current_loop is self._loop:
-                    # Same loop, create task directly
-                    return asyncio.create_task(coro)
+                    # Same loop, create task directly and wrap in a concurrent.futures.Future
+                    task = asyncio.create_task(coro)  # type: ignore
+                    # Convert asyncio.Future to concurrent.futures.Future compatible
+                    return task  # type: ignore
             except RuntimeError:
                 pass
 
             # Different thread, use run_coroutine_threadsafe
-            return asyncio.run_coroutine_threadsafe(coro, self._loop)
+            # This returns a concurrent.futures.Future
+            return asyncio.run_coroutine_threadsafe(coro, self._loop)  # type: ignore
 
         except Exception as e:
             error_msg = f"Failed to run coroutine: {e}"
