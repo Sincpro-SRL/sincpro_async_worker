@@ -1,5 +1,9 @@
 """
 Dispatcher component that executes async tasks.
+
+This module provides the concrete implementation of the DispatcherInterface,
+coordinating the execution of async coroutines in separate threads with
+dedicated event loops for parallel subtask execution.
 """
 
 import asyncio
@@ -27,20 +31,27 @@ class Dispatcher(DispatcherInterface):
 
     def execute(self, task: Awaitable[T], timeout: Optional[float] = None) -> T:
         """
-        Execute an async task.
+        Execute an async coroutine and wait for its completion.
+
+        Executes the coroutine in a separate thread with its own event loop,
+        enabling parallel execution of async subtasks within the coroutine.
 
         Args:
-            task: The async task to execute
+            task: The async coroutine to execute
             timeout: Optional timeout in seconds
 
         Returns:
-            The result of the task
+            The result of the coroutine execution
 
         Raises:
             TimeoutError: If the task takes longer than timeout seconds
-            Exception: Any exception raised by the task
+            RuntimeError: If the worker is not available
+            Exception: Any exception raised by the coroutine
         """
         future = self._worker.run_coroutine(task)
+        if future is None:
+            raise RuntimeError("Worker is not available to execute task")
+
         try:
             if timeout is not None:
                 return future.result(timeout=timeout)
@@ -55,16 +66,25 @@ class Dispatcher(DispatcherInterface):
 
     def execute_async(self, task: Awaitable[T]) -> concurrent.futures.Future[T]:
         """
-        Execute an async task and return a Future immediately (fire-and-forget).
+        Execute an async coroutine in fire-and-forget mode (non-blocking).
+
+        Starts the coroutine execution in a separate thread and returns immediately
+        with a Future. The coroutine can contain parallel async subtasks.
 
         Args:
-            task: The async task to execute
+            task: The async coroutine to execute
 
         Returns:
-            A concurrent.futures.Future representing the eventual result of the task
+            A concurrent.futures.Future representing the eventual result
+
+        Raises:
+            RuntimeError: If the worker is not available
         """
         logger.debug("Executing task in fire-and-forget mode")
-        return self._worker.run_coroutine(task)
+        future = self._worker.run_coroutine(task)
+        if future is None:
+            raise RuntimeError("Worker is not available to execute task")
+        return future
 
     def __del__(self) -> None:
         """Cleanup when the dispatcher is destroyed."""

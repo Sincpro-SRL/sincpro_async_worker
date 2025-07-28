@@ -15,7 +15,7 @@
 ## 2. Problema y Solución
 
 ### 2.1 Problema Técnico
-**Ejecutar código asíncrono desde contextos síncronos** sin bloquear el hilo principal:
+**Ejecutar código asíncrono desde contextos síncronos** sin bloquear el hilo principal y sin conflictos con event loops existentes.
 
 ```python
 # ❌ Problemático: ¿Cómo ejecutar esto desde código síncrono?
@@ -26,8 +26,8 @@ async def fetch_data():
 # ❌ No funciona en contexto síncrono
 result = await fetch_data()  # SyntaxError
 
-# ❌ Bloquea todo el proceso
-result = asyncio.run(fetch_data())  # Conflictos con event loop existente
+# ❌ Conflictos con event loop existente
+result = asyncio.run(fetch_data())  # RuntimeError
 ```
 
 ### 2.2 Solución
@@ -41,7 +41,7 @@ result = run_async_task(fetch_data())
 
 # ✅ Solución: Fire-and-forget (no bloquea)
 future = run_async_task(fetch_data(), fire_and_forget=True)
-result = future.result(timeout=10)  # Obtener resultado cuando necesites
+result = future.result(timeout=10)
 ```
 
 ---
@@ -86,9 +86,9 @@ graph TB
 | Componente | Archivo | Responsabilidad |
 |------------|---------|-----------------|
 | **Core Module** | `core.py` | Punto de entrada, manejo del dispatcher global |
-| **Dispatcher** | `infrastructure/dispatcher.py` | Coordinación y error handling |
-| **Worker** | `infrastructure/worker.py` | Gestión del thread y ejecución de corrutinas |
-| **EventLoop** | `infrastructure/event_loop.py` | Manejo del asyncio event loop |
+| **Dispatcher** | `infrastructure/dispatcher.py` | Coordinación sync/async, manejo de timeouts |
+| **Worker** | `infrastructure/worker.py` | Abstracción de ejecución, delega al EventLoop |
+| **EventLoop** | `infrastructure/event_loop.py` | Gestión inteligente de event loops |
 
 ### 3.3 Interfaces del Dominio
 
@@ -101,20 +101,7 @@ graph TB
 
 ## 4. Flujos de Ejecución
 
-### 4.1 Flujo General
-
-```mermaid
-graph LR
-    User[Código Síncrono] --> Core[run_async_task]
-    Core --> Dispatcher[Dispatcher]
-    Dispatcher --> Worker[Worker]
-    Worker --> EventLoop[EventLoop]
-    EventLoop --> AsyncCode[Corrutina Asyncio]
-    AsyncCode --> Result[Resultado]
-    Result --> User
-```
-
-### 4.2 Flujo Detallado por Modo
+### 4.1 Flujo Básico
 
 ```mermaid
 graph TD
@@ -122,181 +109,165 @@ graph TD
     
     Check -->|No| Blocking[Modo Bloqueante]
     Blocking --> Execute[dispatcher.execute]
-    Execute --> Wait[future.result]
+    Execute --> WorkerCall[worker.run_coroutine]
+    WorkerCall --> EventLoopCheck[EventLoop.run_coroutine]
+    
+    EventLoopCheck --> LoopDetection[get_or_create_event_loop]
+    LoopDetection --> ExecuteTask[Ejecutar corrutina]
+    ExecuteTask --> Wait[future.result]
     Wait --> Return[Retorna resultado]
     
     Check -->|Sí| FireForget[Modo Fire-and-Forget]
     FireForget --> ExecuteAsync[dispatcher.execute_async]
-    ExecuteAsync --> ReturnFuture[Retorna Future inmediatamente]
-    
-    subgraph "Worker Thread"
-        WorkerLoop[Event Loop dedicado]
-        RunTask[Ejecuta corrutina]
-        WorkerLoop --> RunTask
-    end
-    
-    Execute --> WorkerLoop
-    ExecuteAsync --> WorkerLoop
+    ExecuteAsync --> WorkerCall
 ```
 
-### 4.3 Gestión de Errores
+### 4.2 Gestión de Event Loops
 
-```mermaid
-graph TD
-    Task[Tarea Ejecutándose] --> Error{¿Error?}
-    Error -->|No| Success[Éxito - Retorna resultado]
-    Error -->|Sí| ErrorType{¿Tipo de error?}
-    
-    ErrorType -->|Timeout| CancelTask[Cancela tarea]
-    ErrorType -->|Exception| CancelCheck{¿Future done?}
-    
-    CancelTask --> RaiseTimeout[Lanza TimeoutError]
-    CancelCheck -->|No| CancelFuture[Cancela future]
-    CancelCheck -->|Sí| Skip[Skip cancelación]
-    CancelFuture --> Propagate[Propaga excepción]
-    Skip --> Propagate
-    
-    RaiseTimeout --> End[Fin]
-    Propagate --> End
-    Success --> End
-```
-
----
-
-## 5. Patrones de Diseño Aplicados
-
-### 5.1 Patrones Arquitectónicos
-
-| Patrón | Implementación | Beneficio |
-|--------|---------------|-----------|
-| **Hexagonal Architecture** | Interfaces en `domain/`, implementaciones en `infrastructure/` | Aislamiento del dominio |
-| **Dependency Inversion** | `Dispatcher` depende de `DispatcherInterface` | Testabilidad y flexibilidad |
-| **Singleton** | Dispatcher global en `core.py` | Simplicidad de uso |
-
-### 5.2 Patrones de Diseño
-
-| Patrón | Componente | Uso |
-|--------|------------|-----|
-| **Bridge** | `Dispatcher` | Conecta código síncrono con asíncrono |
-| **Adapter** | `Core Module` | Adapta llamadas síncronas al dominio |
-| **Strategy** | `run_async_task` | Diferentes estrategias de ejecución |
-| **Template Method** | `EventLoop` | Ciclo de vida del event loop |
-
----
-
-## 6. Uso y Ejemplos
-
-### 6.1 Casos de Uso Principales
-
-| Caso de Uso | Código | Cuándo Usar |
-|-------------|--------|-------------|
-| **Ejecución Simple** | `result = run_async_task(async_func())` | Necesitas el resultado inmediatamente |
-| **Con Timeout** | `result = run_async_task(async_func(), timeout=5.0)` | Operaciones que pueden colgarse |
-| **Fire-and-Forget** | `future = run_async_task(async_func(), fire_and_forget=True)` | No necesitas esperar el resultado |
-| **Fire-and-Forget con Resultado** | `future = run_async_task(..., fire_and_forget=True)`<br/>`result = future.result(timeout=10)` | Quieres iniciar rápido pero obtener resultado después |
-
-### 6.2 Ejemplo Práctico
+**EventLoop Intelligence** - La característica clave que previene conflictos:
 
 ```python
-import asyncio
-import httpx
-from sincpro_async_worker import run_async_task
+def get_or_create_event_loop() -> asyncio.AbstractEventLoop:
+    """
+    Función standalone que detecta loops existentes o crea nuevos.
+    Comportamiento context-aware:
+    
+    1. Si hay un loop corriendo (asyncio.run()) → Lo reutiliza
+    2. Si hay un loop del thread pero no corriendo → Lo usa  
+    3. Si no hay ninguno → Crea uno nuevo
+    """
+```
 
-# Función asíncrona de ejemplo
-async def fetch_multiple_urls(urls):
-    async with httpx.AsyncClient() as client:
-        tasks = [client.get(url) for url in urls]
-        responses = await asyncio.gather(*tasks)
-        return [r.json() for r in responses]
+**Ownership Tracking:**
+- `_owns_loop = True`: EventLoop creó el loop, puede cerrarlo
+- `_owns_loop = False`: EventLoop reutiliza loop externo, NO lo cierra
 
-# Desde código síncrono (ej: Django view, Flask route)
-def sync_view():
-    urls = ["https://api1.com", "https://api2.com", "https://api3.com"]
-    
-    # Opción 1: Esperar resultado
-    results = run_async_task(fetch_multiple_urls(urls), timeout=10.0)
-    
-    # Opción 2: Fire-and-forget, obtener después
-    future = run_async_task(fetch_multiple_urls(urls), fire_and_forget=True)
-    # ... hacer otras cosas ...
-    results = future.result(timeout=10.0)
-    
-    return results
+### 4.3 Manejo de Errores
+
+**Graceful Degradation Pattern:**
+
+```
+EventLoop falla → Warning + return None
+     ↓
+Worker recibe None → Propaga None
+     ↓  
+Dispatcher recibe None → RuntimeError claro
+     ↓
+Tu código → Maneja la excepción normalmente
 ```
 
 ---
 
-## 7. Testing y Desarrollo
+## 5. Testing Strategy
 
-### 7.1 Estrategia de Testing
+### 5.1 Test Pyramid
 
-```mermaid
-graph TD
-    subgraph "Test Pyramid"
-        Unit[Unit Tests<br/>Componentes aislados]
-        Integration[Integration Tests<br/>Flujo completo]
-        Contract[Contract Tests<br/>Interfaces]
-    end
-    
-    Unit --> |Test| Dispatcher[Dispatcher]
-    Unit --> |Test| Worker[Worker]
-    Unit --> |Test| EventLoop[EventLoop]
-    
-    Integration --> |Test| Core[Core Module]
-    Integration --> |Test| FireAndForget[Fire-and-Forget]
-    
-    Contract --> |Test| Interfaces[Domain Interfaces]
+```
+tests/
+├── test_base.py              # End-to-end scenarios
+├── test_dispatcher.py        # Integration tests
+├── test_worker.py            # Unit tests
+├── test_event_loop.py        # Abstraction tests
+└── test_event_loop_threading.py  # Implementation tests
 ```
 
-### 7.2 Comandos de Desarrollo
+### 5.2 Principios de Testing
 
-```bash
-# Ejecutar todos los tests
-pytest
-
-# Tests específicos
-pytest tests/test_base.py -v
-pytest tests/test_dispatcher.py -v -k "fire_and_forget"
-
-# Coverage
-pytest --cov=sincpro_async_worker
-
-# Linting
-ruff check sincpro_async_worker/
-mypy sincpro_async_worker/
-```
+- **Separación por capas:** Domain vs Infrastructure
+- **Context-aware:** Tests que funcionan en pytest y producción
+- **Graceful degradation:** Tests verifican comportamiento de fallo
 
 ---
 
-## 8. Decisiones Técnicas Clave
+## 6. Decisiones Técnicas
 
-### 8.1 Trade-offs Principales
+### 6.1 Patrones Implementados
 
-| Decisión | ✅ Beneficios | ❌ Trade-offs |
-|----------|---------------|---------------|
-| **Thread separado** | Aislamiento, no conflictos | Overhead de thread |
-| **concurrent.futures.Future** | Thread-safe, compatible con código síncrono | No compatible con await |
-| **Singleton dispatcher** | Simplicidad de uso | Menos flexibilidad |
-| **Cleanup automático** | Sin intervención del usuario | No determinístico |
+| Patrón | Aplicación | Beneficio |
+|--------|------------|-----------|
+| **Graceful Degradation** | EventLoop → Warning + None | No tumba la aplicación |
+| **Context Awareness** | Detección automática de entorno | Funciona en pytest y producción |
+| **Resource Ownership** | Solo cierra recursos propios | Previene conflictos |
+| **Optional Return Types** | `Optional[Awaitable[T]]` | Falla controlada sin excepciones |
 
-### 8.2 Limitaciones y Características
+### 6.2 Limitaciones y Consideraciones
 
-| Aspecto | Límite/Característica |
-|---------|----------------------|
-| **Threads** | 1 worker thread por proceso |
-| **Concurrencia** | ~10k tareas concurrentes (límite del event loop) |
-| **Persistencia** | No hay - solo ejecución en memoria |
-| **Distribución** | No soportada - un solo proceso |
-| **Optimización** | I/O bound tasks, no CPU intensive |
+| Aspecto | Descripción |
+|---------|-------------|
+| **Environment Dependency** | Comportamiento varía entre pytest/producción |
+| **Loop Ownership** | Gestión de recursos según ownership |
+| **Threading** | EventLoop puede o no crear threads |
+| **Graceful Degradation** | Errores se propagan como None, no excepciones |
 
 ---
 
-## 9. Consejos y Buenas Prácticas
+## 7. Uso y Recomendaciones
 
-- **Usa fire-and-forget** cuando no necesites esperar el resultado inmediatamente.
-- **Siempre maneja timeouts** para operaciones de red o que puedan colgarse.
-- **No uses para tareas CPU-intensive** - está optimizado para I/O bound.
-- **Para sistemas distribuidos** considera RabbitMQ, Celery o Apache Kafka.
-- **Los errores se propagan** - maneja excepciones como en código síncrono normal.
-- **El cleanup es automático** - no necesitas gestionar el ciclo de vida manualmente.
-- **Un dispatcher por proceso** - no intentes crear múltiples instancias.
+### 7.1 Casos de Uso Ideales
+
+- **Llamadas HTTP** desde código síncrono
+- **Consultas a bases de datos async** en contextos síncronos
+- **Integrar librerías async** en aplicaciones síncronas existentes
+- **APIs REST** que necesitan llamar servicios async internamente
+
+### 7.2 Limitaciones
+
+- **No usar para tareas CPU intensivas** (usa multiprocessing)
+- **No usar para sistemas distribuidos** (usa Celery, RabbitMQ)
+- **Límite de concurrencia:** ~10k tareas concurrentes
+
+### 7.3 Buenas Prácticas
+
+1. **Usa timeouts siempre**: `run_async_task(task, timeout=30)`
+2. **Fire-and-forget para paralelismo**: No esperes resultados inmediatos
+3. **Maneja excepciones**: Los errores se propagan normalmente
+4. **Un dispatcher por proceso**: No crear múltiples instancias
+
+---
+
+## 8. Documentación Técnica Avanzada
+
+### 8.1 Estrategia de Event Loop
+
+**Documento**: [`architecture/event_loop_strategy.md`](architecture/event_loop_strategy.md)
+
+**Thread Dedicado Siempre** - La ÚNICA estrategia técnicamente viable:
+
+- **Restricción de Python**: Un thread = un event loop máximo
+- **Aislamiento total**: Zero interferencias con contextos externos  
+- **Type consistency**: Siempre retorna `concurrent.futures.Future`
+- **Universal**: Funciona en scripts, Jupyter, FastAPI
+
+```python
+# Implementación simplificada
+class EventLoop:
+    def run_coroutine(self, coro):
+        # SIEMPRE cross-thread execution
+        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+```
+
+### 8.2 Evaluación de Return Types
+
+**Documento**: [`architecture/return_type_analysis.md`](architecture/return_type_analysis.md)
+
+**Análisis matriz cuantitativa** de opciones de retorno:
+
+| Estrategia | Score | Veredicto |
+|------------|-------|-----------|
+| `concurrent.futures.Future` | **61/70 (87%)** | ✅ **GANADOR** |
+| `asyncio.Task` | 40/70 (57%) | ❌ Incompatible sync |
+| Direct Result `T` | 45/70 (64%) | ❌ Bloquea async |
+
+**Justificación**: `Future` es thread-safe, universal, y consistente en todos los contextos.
+
+## 9. Conclusiones
+
+**Sincpro Async Worker** resuelve el problema común de ejecutar código async desde contextos síncronos mediante:
+
+1. **Thread Dedicado Strategy** - ÚNICA solución técnicamente viable en Python
+2. **Future-Based Returns** - Type consistency y thread safety garantizada
+3. **API Simple** - Una función, dos modos de uso
+4. **Zero Configuration** - Funciona out-of-the-box en cualquier contexto
+5. **Graceful Degradation** - Falla elegantemente, no fatalmente
+
+La implementación sigue principios de arquitectura hexagonal y DDD, con decisiones técnicas respaldadas por análisis cuantitativo y limitaciones del lenguaje Python.

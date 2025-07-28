@@ -40,14 +40,18 @@ def test_concurrent_task_execution() -> None:
     """Test that multiple tasks can run concurrently."""
     start_time = time.time()
 
-    # Run three tasks concurrently
-    results = run_async_task(concurrent_tasks())
+    # Run three tasks concurrently (blocking mode)
+    results = run_async_task(concurrent_tasks(), fire_and_forget=False)
+
+    # Type check: when fire_and_forget=False, we get the result directly
+    assert not isinstance(results, concurrent.futures.Future)
 
     end_time = time.time()
     total_time = end_time - start_time
 
     # All tasks should complete in roughly the same time
     assert total_time < 0.2  # Should be close to 0.1 seconds
+    assert results is not None  # Ensure we got a result
     assert len(results) == 3
     assert all(r == "Task completed after 0.1 seconds" for r in results)
 

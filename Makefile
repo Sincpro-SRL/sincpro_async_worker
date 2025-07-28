@@ -1,4 +1,5 @@
 GEMFURY_PUSH_TOKEN ?= DEFAULT_TOKEN
+POETRY_PYPI_TOKEN ?= DEFAULT_TOKEN
 
 .SILENT: configure-gemfury
 
@@ -78,11 +79,6 @@ test_one:
 	poetry run pytest ${t} -vvs
 
 type-check:
-	poetry run pyright sincpro_logger tests
-
-lint:
-	poetry run black --check sincpro_async_worker tests
-	poetry run isort --check-only sincpro_async_worker tests
-	make type-check
+	poetry run pyright sincpro_async_worker tests
 
 .PHONY: install start clean test build format format-yaml format-all type-check lint 
