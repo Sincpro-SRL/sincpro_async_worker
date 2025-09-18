@@ -62,6 +62,14 @@ clean-pyc:
 	find . -type d -name '__pycache__' -exec rm -rf {} \; || exit 0
 	find . -type f -iname '*.pyc' -delete || exit 0
 
+update-version:
+ifndef VERSION
+	$(error VERSION is required. Usage: make update-version VERSION=1.2.3)
+endif
+	@echo "Updating version to $(VERSION) using Poetry..."
+	poetry version $(VERSION)
+	@echo "Version updated successfully"
+
 build: configure-gemfury
 	poetry build
 
